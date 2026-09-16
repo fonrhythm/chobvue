@@ -3,7 +3,7 @@
   "version": "0.0.0",
   "private": true,
   "type": "module",
-  "homepage": "https://fonrhythm.github.io/THAI-Entertain-Calendar/",
+  "homepage": "https://fonrhythm.github.io/chobvue/",
   "scripts": {
     "dev": "vite",
     "build": "vite build",
