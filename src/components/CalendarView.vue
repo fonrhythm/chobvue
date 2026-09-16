@@ -1,667 +1,627 @@
 <template>
-  <div class="calendar-view">
-    <!-- 月份导航 -->
-    <div class="month-header">
-      <div class="month-info">
-        <button @click="previousMonth" class="nav-btn">‹</button>
-        <div class="month-title">
-          <div class="year">{{ currentYear }}</div>
-          <div class="month">{{ currentMonthName }}</div>
-          <div class="month-en">{{ currentMonthNameEn }}</div>
-        </div>
-        <button @click="nextMonth" class="nav-btn">›</button>
-      </div>
-
-      <!-- 地区导航 -->
-      <div class="region-tabs">
-        <button 
-          v-for="region in regions" 
-          :key="region"
-          @click="viewStore.setRegion(region)"
-          :class="{ active: viewStore.currentRegion === region }"
-          class="region-tab"
-        >
-          {{ regionNames[region] }}
-        </button>
-      </div>
-    </div>
-
-    <!-- 统计信息 -->
-    <div class="stats-bar">
-      <div class="stat-item">
-        <div class="stat-value">{{ stats.total }}</div>
-        <div class="stat-label">站台活动</div>
-      </div>
-      <div class="stat-item">
-        <div class="stat-value">{{ stats.official }}</div>
-        <div class="stat-label">官方宣传</div>
-      </div>
-      <div class="stat-item">
-        <div class="stat-value">{{ stats.fan }}</div>
-        <div class="stat-label">粉丝推送</div>
-      </div>
-      <div class="stat-item">
-        <div class="stat-value">{{ stats.other }}</div>
-        <div class="stat-label">其他</div>
-      </div>
-    </div>
-
-    <!-- 视图切换 -->
-    <div class="view-toggle">
-      <button 
-        @click="viewStore.setView('calendar')"
-        :class="{ active: viewStore.currentView === 'calendar' }"
-        class="toggle-btn"
-      >
-        📅 日历
-      </button>
-      <button 
-        @click="viewStore.setView('week')"
-        :class="{ active: viewStore.currentView === 'week' }"
-        class="toggle-btn"
-      >
-        📆 周
-      </button>
-      <button 
-        @click="viewStore.setView('task')"
-        :class="{ active: viewStore.currentView === 'task' }"
-        class="toggle-btn"
-      >
-        📋 事项
-      </button>
-    </div>
-
-    <!-- 周几标题 -->
-    <div class="weekdays">
-      <div v-for="day in weekdayLabels" :key="day" class="weekday">
-        {{ day }}
-      </div>
-    </div>
-
-    <!-- 日历格子 -->
+  <div class="calendar-view" :style="calendarCssVariables">
+    <!-- 日历网格 -->
     <div class="calendar-grid">
-      <div 
-        v-for="day in calendarDays" 
+      <!-- 周头 (Sun-Sat) -->
+      <div class="week-header">
+        <div class="week-day" v-for="day in weekDays" :key="day">
+          {{ day }}
+        </div>
+      </div>
+
+      <!-- 日期格子 -->
+      <div
+        class="calendar-cell"
+        v-for="day in calendarDays"
         :key="day.dateStr"
-        @click="selectDay(day)"
-        :class="{ 
-          'other-month': !day.isCurrentMonth,
-          'today': day.isToday,
-          'selected': day.dateStr === selectedDateStr
+        :class="{
+          'is-other-month': !day.isCurrentMonth,
+          'is-today': day.isToday,
         }"
-        class="calendar-day"
+        @click="selectDate(day)"
       >
-        <div class="day-number">{{ day.date }}</div>
-        
-        <div class="events-container">
-          <div 
-            v-for="(event, idx) in day.events.slice(0, 3)" 
+        <!-- 日期数字 -->
+        <div class="cell-header">
+          <span class="date-number">{{ day.date }}</span>
+          <span v-if="day.eventCount > 3" class="event-indicator">
+            +{{ day.eventCount - 3 }}
+          </span>
+        </div>
+
+        <!-- 事件标签区 -->
+        <div class="cell-events">
+          <div
+            v-for="(event, idx) in day.events.slice(0, 3)"
             :key="idx"
-            @click.stop="showEventDetail(event)"
-            :style="getEventStyle(event)"
             class="event-chip"
+            :class="getChipClasses(event)"
+            :style="getChipStyle(event)"
           >
-            <span class="event-text">{{ event.name }}</span>
-            <span v-if="event.isofficial" class="official-star">★</span>
+            <!-- 官方标记星星 -->
+            <span v-if="event.isofficial" class="chip-star">★</span>
+            <!-- 艺人名称 -->
+            <span class="chip-text">{{ event.name }}</span>
           </div>
         </div>
-
-        <div v-if="day.events.length > 3" class="more-events">
-          +{{ day.events.length - 3 }} 更多
-        </div>
       </div>
     </div>
 
-    <!-- 事件详情弹窗 -->
-    <div v-if="selectedEventDetail" class="modal-overlay" @click="selectedEventDetail = null">
-      <div class="modal-content" @click.stop>
-        <div class="modal-header">
-          <h3>{{ selectedEventDetail.name }}</h3>
-          <button @click="selectedEventDetail = null" class="close-btn">✕</button>
-        </div>
-        <div class="modal-body">
-          <p v-if="selectedEventDetail.company"><strong>艺人：</strong> {{ selectedEventDetail.company }}</p>
-          <p v-if="selectedEventDetail.category"><strong>类型：</strong> {{ selectedEventDetail.category }}</p>
-          <p v-if="selectedEventDetail.activity"><strong>活动：</strong> {{ selectedEventDetail.activity }}</p>
-          <p v-if="selectedEventDetail.venue"><strong>地点：</strong> {{ selectedEventDetail.venue }}</p>
-          <p v-if="selectedEventDetail.city"><strong>城市：</strong> {{ selectedEventDetail.city }}</p>
-          <p v-if="selectedEventDetail.time"><strong>时间：</strong> {{ selectedEventDetail.time }}</p>
-          <p v-if="selectedEventDetail.price"><strong>票价：</strong> {{ selectedEventDetail.price }}</p>
-          <p v-if="selectedEventDetail.ticket_url"><strong>购票：</strong> 
-            <a :href="selectedEventDetail.ticket_url" target="_blank">点击购票</a>
-          </p>
-          <p v-if="selectedEventDetail.isofficial" class="official-badge">★ 官方活动</p>
+    <!-- 日期详情弹窗 -->
+    <Teleport to="body" v-if="selectedDate">
+      <div class="modal-overlay" @click.self="selectedDate = null">
+        <div class="modal-content">
+          <div class="modal-header">
+            <div>
+              <h3 class="modal-title">{{ formatDate(selectedDate.date) }}</h3>
+              <p class="modal-subtitle">
+                {{ getWeekdayName(selectedDate.date) }} · 共 {{ selectedDate.eventCount }} 项日程
+              </p>
+            </div>
+            <button class="modal-close" @click="selectedDate = null">✕</button>
+          </div>
+
+          <div class="modal-body">
+            <!-- 全天活动 -->
+            <div v-if="selectedDate.allDayEvents.length > 0" class="event-section">
+              <div class="section-title">全天 / 跨天</div>
+              <div class="event-list">
+                <div
+                  v-for="(event, idx) in selectedDate.allDayEvents"
+                  :key="idx"
+                  class="event-item"
+                  :style="getChipStyle(event)"
+                  :class="getChipClasses(event)"
+                >
+                  {{ event.name }}
+                </div>
+              </div>
+            </div>
+
+            <!-- 时间线活动 -->
+            <div v-if="selectedDate.timedEvents.length > 0" class="event-section">
+              <div class="section-title">时间轴日程</div>
+              <div class="timeline">
+                <div
+                  v-for="(event, idx) in selectedDate.timedEvents"
+                  :key="idx"
+                  class="timeline-item"
+                >
+                  <span class="timeline-dot"></span>
+                  <div class="timeline-content">
+                    <div class="time-range">{{ event.time || event.sale_time }}</div>
+                    <div class="event-name">{{ event.name }}</div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="modal-footer">
+            <button class="btn-secondary" @click="selectedDate = null">关闭</button>
+            <button class="btn-primary">+ 在这天新增</button>
+          </div>
         </div>
       </div>
-    </div>
+    </Teleport>
   </div>
 </template>
 
-<script setup>
-import { ref, computed, onMounted } from 'vue'
+<script>
+import { computed, ref } from 'vue'
 import { useViewStore } from '@/stores/view'
 import { useEventsStore } from '@/stores/events'
-import { getArtistColor } from '@/utils/config'
+import { getCategoryColor, getOfficialChipStyle, getFanChipStyle } from '@/utils/config'
 
-const viewStore = useViewStore()
-const eventsStore = useEventsStore()
+export default {
+  name: 'CalendarView',
+  setup() {
+    const viewStore = useViewStore()
+    const eventsStore = useEventsStore()
+    const selectedDate = ref(null)
 
-// 状态
-const currentDate = ref(new Date())
-const selectedEventDetail = ref(null)
+    const weekDays = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
 
-// 常量
-const regions = ['oversea', 'china', 'thailand', 'chob']
-const regionNames = {
-  oversea: 'OVERSEA',
-  china: 'CHINA',
-  thailand: 'THAILAND',
-  chob: 'CHOB'
-}
+    // 计算当前月份的日历数据
+    const calendarDays = computed(() => {
+      const year = viewStore.currentYear
+      const month = viewStore.currentMonth
+      const firstDay = new Date(year, month, 1)
+      const lastDay = new Date(year, month + 1, 0)
+      const startDate = new Date(firstDay)
+      startDate.setDate(startDate.getDate() - firstDay.getDay())
 
-const weekdayLabels = ['日', '一', '二', '三', '四', '五', '六']
-const monthNames = ['一月', '二月', '三月', '四月', '五月', '六月', '七月', '八月', '九月', '十月', '十一月', '十二月']
-const monthNamesEn = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
+      const days = []
+      const cellsNeeded = Math.ceil((startDate.getDay() + lastDay.getDate()) / 7) * 7
 
-// 计算属性
-const currentYear = computed(() => currentDate.value.getFullYear())
-const currentMonth = computed(() => currentDate.value.getMonth())
-const currentMonthName = computed(() => monthNames[currentMonth.value])
-const currentMonthNameEn = computed(() => monthNamesEn[currentMonth.value])
+      for (let i = 0; i < cellsNeeded; i++) {
+        const date = new Date(startDate)
+        date.setDate(date.getDate() + i)
 
-const selectedDateStr = computed(() => {
-  const year = currentDate.value.getFullYear()
-  const month = String(currentDate.value.getMonth() + 1).padStart(2, '0')
-  const date = String(currentDate.value.getDate()).padStart(2, '0')
-  return `${year}-${month}-${date}`
-})
+        const dateStr = formatDateStr(date)
+        const dayEvents = eventsStore.getEventsByDate(dateStr)
 
-const calendarDays = computed(() => {
-  const year = currentDate.value.getFullYear()
-  const month = currentDate.value.getMonth()
-  
-  const firstDay = new Date(year, month, 1)
-  const lastDay = new Date(year, month + 1, 0)
-  const prevLastDay = new Date(year, month, 0)
-  
-  const firstDayOfWeek = firstDay.getDay()
-  const lastDateOfMonth = lastDay.getDate()
-  const prevLastDate = prevLastDay.getDate()
-  
-  const days = []
-  const today = new Date()
-  
-  // 前一个月的日期
-  for (let i = firstDayOfWeek - 1; i >= 0; i--) {
-    const date = prevLastDate - i
-    days.push({
-      date,
-      isCurrentMonth: false,
-      dateStr: `${year}-${month}-${date}`,
-      isToday: false,
-      events: []
+        days.push({
+          date: date.getDate(),
+          dateStr,
+          fullDate: date,
+          isCurrentMonth: date.getMonth() === month,
+          isToday: isToday(date),
+          events: dayEvents,
+          eventCount: dayEvents.length,
+          allDayEvents: dayEvents.filter(e => !e.time),
+          timedEvents: dayEvents.filter(e => e.time),
+        })
+      }
+
+      return days
     })
-  }
-  
-  // 当前月的日期
-  for (let date = 1; date <= lastDateOfMonth; date++) {
-    const dateStr = `${year}-${String(month + 1).padStart(2, '0')}-${String(date).padStart(2, '0')}`
-    const isToday = date === today.getDate() && 
-                    month === today.getMonth() && 
-                    year === today.getFullYear()
-    
-    const dayEvents = eventsStore.filteredEvents.filter(e => 
-      (e.date || e.sale_date) === dateStr
-    )
-    
-    days.push({
-      date,
-      isCurrentMonth: true,
-      dateStr,
-      isToday,
-      events: dayEvents
+
+    // CSS 变量映射
+    const calendarCssVariables = computed(() => {
+      const colors = viewStore.currentColors
+      const vars = {}
+      Object.entries(colors).forEach(([key, value]) => {
+        vars[`--${key}`] = value
+      })
+      return vars
     })
-  }
-  
-  // 下一个月的日期
-  const remainingDays = 42 - days.length
-  for (let date = 1; date <= remainingDays; date++) {
-    days.push({
-      date,
-      isCurrentMonth: false,
-      dateStr: `${year}-${month + 2}-${date}`,
-      isToday: false,
-      events: []
-    })
-  }
-  
-  return days
-})
 
-const stats = computed(() => {
-  const events = eventsStore.filteredEvents
-  return {
-    total: events.length,
-    official: events.filter(e => e.isofficial).length,
-    fan: events.filter(e => !e.isofficial).length,
-    other: 0
-  }
-})
+    // 获取芯片样式类
+    const getChipClasses = (event) => {
+      const category = event.category || 'other'
+      return {
+        [`category-${category}`]: true,
+        'is-official': event.isofficial,
+        'is-fan': !event.isofficial,
+      }
+    }
 
-// 方法
-function previousMonth() {
-  currentDate.value = new Date(currentDate.value.getFullYear(), currentDate.value.getMonth() - 1, 1)
+    // 获取芯片样式（背景色、边框等）
+    const getChipStyle = (event) => {
+      const category = event.category || 'other'
+      const region = viewStore.currentRegion
+
+      if (event.isofficial) {
+        const officialStyle = getOfficialChipStyle(category, region)
+        return {
+          borderColor: officialStyle.borderColor,
+          color: officialStyle.color,
+          backgroundColor: 'transparent',
+          border: `1.5px solid ${officialStyle.borderColor}`,
+        }
+      } else {
+        const fanStyle = getFanChipStyle(category, region)
+        return {
+          backgroundColor: fanStyle.bg,
+          color: fanStyle.text,
+          border: 'none',
+        }
+      }
+    }
+
+    // 日期选择
+    const selectDate = (day) => {
+      if (day.eventCount > 0) {
+        selectedDate.value = day
+      }
+    }
+
+    // 日期格式化
+    const formatDateStr = (date) => {
+      const year = date.getFullYear()
+      const month = String(date.getMonth() + 1).padStart(2, '0')
+      const day = String(date.getDate()).padStart(2, '0')
+      return `${year}-${month}-${day}`
+    }
+
+    const formatDate = (date) => {
+      return date.toLocaleDateString('zh-CN', {
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit',
+      })
+    }
+
+    const getWeekdayName = (date) => {
+      const names = ['星期日', '星期一', '星期二', '星期三', '星期四', '星期五', '星期六']
+      return names[date.getDay()]
+    }
+
+    const isToday = (date) => {
+      const today = new Date()
+      return (
+        date.getFullYear() === today.getFullYear() &&
+        date.getMonth() === today.getMonth() &&
+        date.getDate() === today.getDate()
+      )
+    }
+
+    return {
+      calendarDays,
+      calendarCssVariables,
+      selectedDate,
+      weekDays,
+      getChipClasses,
+      getChipStyle,
+      selectDate,
+      formatDate,
+      getWeekdayName,
+    }
+  },
 }
-
-function nextMonth() {
-  currentDate.value = new Date(currentDate.value.getFullYear(), currentDate.value.getMonth() + 1, 1)
-}
-
-function selectDay(day) {
-  if (day.isCurrentMonth) {
-    currentDate.value = new Date(currentDate.value.getFullYear(), currentDate.value.getMonth(), day.date)
-  }
-}
-
-function getEventStyle(event) {
-  const colors = getArtistColor(event.category, viewStore.currentRegion, event.isofficial)
-  return {
-    backgroundColor: colors.background,
-    color: colors.color,
-    border: colors.border
-  }
-}
-
-function showEventDetail(event) {
-  selectedEventDetail.value = event
-}
-
-// 初始化
-onMounted(() => {
-  eventsStore.fetchAllEvents()
-})
 </script>
 
 <style scoped>
 .calendar-view {
-  padding: 2rem;
-  background: var(--color-background);
-  color: var(--color-text);
-  transition: all 0.3s ease;
+  width: 100%;
+  background-color: var(--bg);
+  padding: 1rem;
+  border-radius: 0.75rem;
 }
 
-/* 月份头部 */
-.month-header {
-  margin-bottom: 2rem;
-  padding-bottom: 1.5rem;
-  border-bottom: 1px solid var(--color-border);
-}
-
-.month-info {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  margin-bottom: 1.5rem;
-}
-
-.month-title {
-  text-align: center;
-  flex: 1;
-}
-
-.year {
-  font-size: 0.875rem;
-  color: var(--color-textSecondary);
-  letter-spacing: 0.15em;
-}
-
-.month {
-  font-size: 3rem;
-  font-weight: 900;
-  line-height: 1;
-  margin: 0.25rem 0;
-}
-
-.month-en {
-  font-size: 1.5rem;
-  color: var(--color-textSecondary);
-  font-weight: 300;
-  letter-spacing: 0.05em;
-}
-
-.nav-btn {
-  width: 2.5rem;
-  height: 2.5rem;
-  border: none;
-  background: var(--color-surface);
-  border-radius: 8px;
-  font-size: 1.5rem;
-  cursor: pointer;
-  transition: all 0.2s;
-  border: 1px solid var(--color-border);
-}
-
-.nav-btn:hover {
-  background: var(--color-primary);
-  color: white;
-  border-color: var(--color-primary);
-}
-
-/* 地区标签 */
-.region-tabs {
-  display: flex;
-  gap: 0.75rem;
-  justify-content: center;
-  flex-wrap: wrap;
-}
-
-.region-tab {
-  padding: 0.5rem 1.25rem;
-  border: 1px solid var(--color-border);
-  background: var(--color-surface);
-  border-radius: 20px;
-  cursor: pointer;
-  font-size: 0.875rem;
-  font-weight: 500;
-  transition: all 0.2s;
-  color: var(--color-text);
-}
-
-.region-tab.active {
-  background: #1a1a1a;
-  color: white;
-  border-color: #1a1a1a;
-}
-
-.region-tab:hover:not(.active) {
-  border-color: var(--color-primary);
-  color: var(--color-primary);
-}
-
-/* 统计栏 */
-.stats-bar {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
-  gap: 1rem;
-  margin-bottom: 1.5rem;
-  padding: 1.5rem;
-  background: var(--color-surface);
-  border-radius: 12px;
-  border: 1px solid var(--color-border);
-}
-
-.stat-item {
-  text-align: center;
-}
-
-.stat-value {
-  font-size: 1.75rem;
-  font-weight: bold;
-  color: var(--color-primary);
-}
-
-.stat-label {
-  font-size: 0.75rem;
-  color: var(--color-textSecondary);
-  margin-top: 0.25rem;
-}
-
-/* 视图切换 */
-.view-toggle {
-  display: flex;
-  gap: 0.5rem;
-  margin-bottom: 1.5rem;
-  justify-content: center;
-}
-
-.toggle-btn {
-  padding: 0.5rem 1rem;
-  border: 1px solid var(--color-border);
-  background: var(--color-surface);
-  border-radius: 8px;
-  cursor: pointer;
-  font-size: 0.875rem;
-  font-weight: 500;
-  transition: all 0.2s;
-  color: var(--color-text);
-}
-
-.toggle-btn.active {
-  background: #1a1a1a;
-  color: white;
-  border-color: #1a1a1a;
-}
-
-.toggle-btn:hover:not(.active) {
-  border-color: var(--color-primary);
-}
-
-/* 周几标题 */
-.weekdays {
-  display: grid;
-  grid-template-columns: repeat(7, 1fr);
-  gap: 0.5rem;
-  margin-bottom: 0.5rem;
-}
-
-.weekday {
-  text-align: center;
-  font-weight: 600;
-  color: var(--color-textSecondary);
-  font-size: 0.875rem;
-  padding: 0.5rem;
-}
-
-/* 日历网格 */
+/* ============ 日历网格 ============ */
 .calendar-grid {
   display: grid;
   grid-template-columns: repeat(7, 1fr);
   gap: 0.5rem;
-  margin-bottom: 2rem;
+  background-color: var(--surface);
+  padding: 1rem;
+  border-radius: 0.5rem;
+  border: 1px solid var(--border);
 }
 
-.calendar-day {
-  display: flex;
-  flex-direction: column;
-  justify-content: space-between;
-  min-height: 6.5rem;
-  padding: 0.75rem;
-  background: var(--color-surface);
-  border: 1px solid var(--color-border);
-  border-radius: 8px;
-  cursor: pointer;
-  transition: all 0.2s;
-  position: relative;
+.week-header {
+  display: contents;
 }
 
-.calendar-day:hover {
-  border-color: var(--color-primary);
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
-}
-
-.calendar-day.today {
-  background: linear-gradient(135deg, var(--color-primary) 0%, rgba(0,0,0,0) 100%);
-  border-color: var(--color-primary);
-}
-
-.calendar-day.today .day-number {
-  color: white;
-  font-weight: bold;
-}
-
-.calendar-day.other-month {
-  opacity: 0.3;
-  cursor: default;
-}
-
-.calendar-day.other-month:hover {
-  border-color: var(--color-border);
-  box-shadow: none;
-}
-
-.calendar-day.selected {
-  box-shadow: 0 0 0 2px var(--color-primary);
-}
-
-.day-number {
-  font-size: 0.875rem;
-  font-weight: 600;
-  color: var(--color-text);
-}
-
-.events-container {
-  display: flex;
-  flex-direction: column;
-  gap: 0.35rem;
-  flex: 1;
-  overflow: hidden;
-}
-
-.event-chip {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.25rem;
-  padding: 0.35rem 0.5rem;
-  font-size: 0.7rem;
-  font-weight: 500;
-  border-radius: 4px;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  transition: all 0.2s;
-  cursor: pointer;
-}
-
-.event-chip:hover {
-  transform: scale(1.02);
-}
-
-.event-text {
-  flex: 1;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.official-star {
-  flex-shrink: 0;
-  font-size: 0.65rem;
-}
-
-.more-events {
-  font-size: 0.65rem;
-  color: var(--color-textSecondary);
-  padding: 0.25rem;
-}
-
-/* 弹窗样式 */
-.modal-overlay {
-  position: fixed;
-  inset: 0;
-  background: rgba(0, 0, 0, 0.5);
+.week-day {
   display: flex;
   align-items: center;
   justify-content: center;
-  z-index: 1000;
+  height: 2.5rem;
+  font-weight: 600;
+  color: var(--muted);
+  font-size: 0.875rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  border-bottom: 1px solid var(--border-soft);
+  padding-bottom: 0.5rem;
+}
+
+/* ============ 日期格子 ============ */
+.calendar-cell {
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  min-height: 7rem;
+  padding: 0.75rem;
+  background-color: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 0.375rem;
+  transition: all 0.2s ease;
+  cursor: pointer;
+}
+
+.calendar-cell:hover {
+  border-color: var(--c-gl);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+}
+
+.calendar-cell.is-other-month {
+  opacity: 0.4;
+  background-color: var(--bg);
+}
+
+.calendar-cell.is-today {
+  background-color: var(--border-soft);
+  border-color: var(--c-gl);
+}
+
+/* 格子头部 */
+.cell-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 0.5rem;
+}
+
+.date-number {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.5rem;
+  height: 1.5rem;
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: var(--text);
+  border-radius: 50%;
+}
+
+.calendar-cell:hover .date-number {
+  background-color: var(--border-soft);
+  color: var(--c-gl);
+}
+
+.event-indicator {
+  font-size: 0.75rem;
+  color: var(--muted);
+  font-weight: 500;
+}
+
+/* 事件区域 */
+.cell-events {
+  display: flex;
+  flex-direction: column;
+  gap: 0.375rem;
+  flex: 1;
+  overflow: hidden;
+}
+
+/* ============ 芯片样式 ============ */
+.event-chip {
+  display: flex;
+  align-items: center;
+  gap: 0.375rem;
+  padding: 0.375rem 0.75rem;
+  border-radius: 0.375rem;
+  font-size: 0.75rem;
+  font-weight: 500;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  transition: all 0.2s ease;
+  position: relative;
+}
+
+.event-chip:hover {
+  transform: translateX(2px);
+}
+
+/* 官方样式（镶边 + 星星） */
+.event-chip.is-official {
+  background-color: transparent;
+}
+
+.event-chip.is-official .chip-star {
+  margin-right: -0.25rem;
+  font-size: 0.625rem;
+}
+
+/* 粉丝样式（填充） */
+.event-chip.is-fan {
+  border: none;
+}
+
+.chip-star {
+  flex-shrink: 0;
+  font-size: 0.75rem;
+}
+
+.chip-text {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* ============ 模态框 ============ */
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background-color: rgba(0, 0, 0, 0.25);
   backdrop-filter: blur(4px);
+  padding: 1rem;
 }
 
 .modal-content {
-  background: var(--color-surface);
-  border: 1px solid var(--color-border);
-  border-radius: 12px;
-  padding: 1.5rem;
-  max-width: 500px;
-  width: 90%;
-  max-height: 80vh;
-  overflow-y: auto;
-  animation: slideUp 0.3s ease;
+  width: 100%;
+  max-width: 28rem;
+  background-color: var(--surface);
+  border-radius: 1rem;
+  box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1);
+  border: 1px solid var(--border);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  max-height: 85vh;
 }
 
 .modal-header {
   display: flex;
   justify-content: space-between;
-  align-items: center;
-  margin-bottom: 1rem;
-  padding-bottom: 1rem;
-  border-bottom: 1px solid var(--color-border);
+  align-items: flex-start;
+  padding: 1.25rem;
+  border-bottom: 1px solid var(--border);
+  background-color: rgba(0, 0, 0, 0.025);
 }
 
-.modal-header h3 {
+.modal-title {
+  font-size: 1rem;
+  font-weight: 600;
+  color: var(--text);
   margin: 0;
-  font-size: 1.25rem;
 }
 
-.close-btn {
+.modal-subtitle {
+  font-size: 0.75rem;
+  color: var(--muted);
+  margin: 0.25rem 0 0;
+}
+
+.modal-close {
+  padding: 0.375rem;
+  font-size: 1.25rem;
+  color: var(--muted);
   background: none;
   border: none;
-  font-size: 1.5rem;
+  border-radius: 0.375rem;
   cursor: pointer;
-  color: var(--color-textSecondary);
-  transition: color 0.2s;
+  transition: all 0.2s ease;
 }
 
-.close-btn:hover {
-  color: var(--color-text);
+.modal-close:hover {
+  background-color: var(--border-soft);
+  color: var(--text);
 }
 
 .modal-body {
+  padding: 1.25rem;
+  overflow-y: auto;
+  flex: 1;
+}
+
+.modal-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.5rem;
+  padding: 1rem 1.25rem;
+  border-top: 1px solid var(--border);
+  background-color: rgba(0, 0, 0, 0.025);
+}
+
+/* ============ 事件部分 ============ */
+.event-section {
+  margin-bottom: 1.5rem;
+}
+
+.event-section:last-child {
+  margin-bottom: 0;
+}
+
+.section-title {
+  font-size: 0.6875rem;
+  font-weight: 600;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  margin-bottom: 0.75rem;
+}
+
+.event-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.event-item {
+  padding: 0.75rem;
+  border-radius: 0.75rem;
   font-size: 0.875rem;
-  line-height: 1.6;
-}
-
-.modal-body p {
-  margin: 0.5rem 0;
-}
-
-.modal-body a {
-  color: var(--color-primary);
-  text-decoration: none;
   font-weight: 500;
 }
 
-.modal-body a:hover {
-  text-decoration: underline;
+/* ============ 时间线 ============ */
+.timeline {
+  position: relative;
+  border-left: 2px solid var(--border);
+  margin-left: 0.5rem;
+  padding-left: 1rem;
+  space: 1rem;
 }
 
-.official-badge {
-  margin-top: 1rem;
-  padding: 0.75rem;
-  background: var(--color-primary);
-  color: white;
-  border-radius: 8px;
-  text-align: center;
+.timeline-item {
+  position: relative;
+  margin-bottom: 1rem;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.timeline-item:hover {
+  transform: translateX(4px);
+}
+
+.timeline-dot {
+  position: absolute;
+  left: -0.9375rem;
+  top: 0.25rem;
+  width: 0.625rem;
+  height: 0.625rem;
+  border-radius: 50%;
+  background-color: var(--c-gl);
+  border: 3px solid var(--surface);
+  box-shadow: 0 0 0 2px var(--border);
+}
+
+.timeline-content {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.time-range {
+  font-size: 0.6875rem;
+  color: var(--muted);
+  font-family: monospace;
+}
+
+.event-name {
+  font-size: 0.875rem;
   font-weight: 600;
+  color: var(--text);
 }
 
-@keyframes slideUp {
-  from {
-    opacity: 0;
-    transform: translateY(20px);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
+/* ============ 按钮 ============ */
+.btn-secondary,
+.btn-primary {
+  padding: 0.5rem 1rem;
+  font-size: 0.75rem;
+  font-weight: 500;
+  border-radius: 0.75rem;
+  border: none;
+  cursor: pointer;
+  transition: all 0.2s ease;
 }
 
-/* 响应式 */
+.btn-secondary {
+  color: var(--sub);
+  background-color: transparent;
+  border: 1px solid var(--border);
+}
+
+.btn-secondary:hover {
+  background-color: var(--border-soft);
+}
+
+.btn-primary {
+  color: #fff;
+  background-color: var(--c-gl);
+  box-shadow: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
+}
+
+.btn-primary:hover {
+  opacity: 0.9;
+}
+
+/* ============ 响应式设计 ============ */
 @media (max-width: 768px) {
-  .calendar-view {
-    padding: 1rem;
-  }
-
-  .month {
-    font-size: 2rem;
-  }
-
-  .calendar-day {
+  .calendar-cell {
     min-height: 5rem;
     padding: 0.5rem;
+  }
+
+  .event-chip {
+    font-size: 0.7rem;
+    padding: 0.25rem 0.5rem;
+  }
+
+  .cell-header {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0.25rem;
+  }
+
+  .date-number {
+    width: 1.25rem;
+    height: 1.25rem;
     font-size: 0.75rem;
   }
 
-  .stats-bar {
-    grid-template-columns: repeat(2, 1fr);
+  .modal-content {
+    max-width: 100%;
   }
 }
 </style>

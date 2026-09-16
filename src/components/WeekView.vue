@@ -1,325 +1,610 @@
 <template>
-  <div class="week-view">
-    <!-- 周导航 -->
-    <div class="week-header">
-      <button @click="previousWeek" class="nav-btn">‹</button>
-      <div class="week-info">
-        <div class="week-title">{{ weekStart.toLocaleDateString('zh-CN', { month: 'short', day: 'numeric' }) }} - {{ weekEnd.toLocaleDateString('zh-CN', { month: 'short', day: 'numeric' }) }}</div>
-      </div>
-      <button @click="nextWeek" class="nav-btn">›</button>
-    </div>
-
-    <!-- 日期选择 -->
-    <div class="weekdays-slider">
-      <button 
-        v-for="day in weekDays" 
-        :key="day.dateStr"
-        @click="selectDate(day.date)"
-        :class="{ active: day.dateStr === selectedDateStr }"
-        class="day-btn"
-      >
-        <div class="day-name">{{ dayNames[day.date.getDay()] }}</div>
-        <div class="day-number">{{ day.date.getDate() }}</div>
-      </button>
-    </div>
-
-    <!-- 当日活动列表 -->
-    <div class="day-events">
-      <h3 class="events-title">{{ selectedDateStr }} 的活动</h3>
+  <div class="week-view" :style="weekCssVariables">
+    <!-- 周选择器 -->
+    <div class="week-selector">
+      <button class="nav-button" @click="previousWeek">‹</button>
       
-      <div v-if="todayEvents.length === 0" class="no-events">
-        这一天没有活动安排
+      <div class="week-dates">
+        <button
+          v-for="day in weekDates"
+          :key="day.dateStr"
+          class="week-date"
+          :class="{ 'is-selected': day.isSelected, 'is-today': day.isToday }"
+          @click="selectDate(day)"
+        >
+          <span class="day-name">{{ day.dayName }}</span>
+          <span class="date-num">{{ day.date }}</span>
+        </button>
       </div>
 
-      <div v-else class="events-list">
-        <div 
-          v-for="event in todayEvents" 
-          :key="event.id"
-          @click="selectedEvent = event"
-          :style="getEventStyle(event)"
-          class="event-item"
+      <button class="nav-button" @click="nextWeek">›</button>
+    </div>
+
+    <!-- 事件列表 -->
+    <div class="events-container">
+      <div class="events-header">
+        <h3 class="selected-date">{{ formatSelectedDate() }}</h3>
+        <span class="event-count">共 {{ selectedDayEvents.length }} 项日程</span>
+      </div>
+
+      <!-- 事件列表 -->
+      <div v-if="selectedDayEvents.length > 0" class="events-list">
+        <div
+          v-for="(event, idx) in selectedDayEvents"
+          :key="idx"
+          class="event-card"
+          :class="getChipClasses(event)"
+          :style="getChipStyle(event)"
         >
-          <div class="event-header">
-            <h4 class="event-name">
-              {{ event.name }}
-              <span v-if="event.isofficial" class="official-badge">★ 官方</span>
-            </h4>
-            <div class="event-time">{{ event.time || '全天' }}</div>
-          </div>
-          
-          <div class="event-details">
-            <p v-if="event.company"><strong>艺人：</strong> {{ event.company }}</p>
-            <p v-if="event.activity"><strong>类型：</strong> {{ event.activity }}</p>
-            <p v-if="event.venue"><strong>地点：</strong> {{ event.venue }}</p>
-            <p v-if="event.city"><strong>城市：</strong> {{ event.city }}</p>
+          <!-- 左边颜色条 -->
+          <div class="event-color-bar"></div>
+
+          <!-- 内容区 -->
+          <div class="event-content">
+            <div class="event-header">
+              <h4 class="event-name">
+                <span v-if="event.isofficial" class="official-badge">★</span>
+                {{ event.name }}
+              </h4>
+              <span v-if="event.activity" class="activity-type">
+                {{ event.activity }}
+              </span>
+            </div>
+
+            <div class="event-details">
+              <p v-if="event.time" class="detail-item">
+                <span class="label">⏰ 时间：</span>
+                <span>{{ event.time }}</span>
+              </p>
+              <p v-if="event.venue" class="detail-item">
+                <span class="label">📍 场地：</span>
+                <span>{{ event.venue }}, {{ event.city }}</span>
+              </p>
+              <p v-if="event.price" class="detail-item">
+                <span class="label">💵 价格：</span>
+                <span>{{ event.price }}</span>
+              </p>
+              <p v-if="event.note" class="detail-item">
+                <span class="label">📝 备注：</span>
+                <span>{{ event.note }}</span>
+              </p>
+            </div>
+
+            <!-- 操作按钮 -->
+            <div class="event-actions">
+              <button v-if="event.ticket_url" class="btn-link" @click="openLink(event.ticket_url)">
+                🎫 购票
+              </button>
+              <button class="btn-favorite" :class="{ active: isFavorited(event.id) }" @click="toggleFavorite(event.id)">
+                ♥
+              </button>
+            </div>
           </div>
         </div>
+      </div>
+
+      <!-- 空状态 -->
+      <div v-else class="empty-state">
+        <div class="empty-icon">📅</div>
+        <p class="empty-text">这一天没有日程</p>
       </div>
     </div>
   </div>
 </template>
 
-<script setup>
-import { ref, computed } from 'vue'
+<script>
+import { computed, ref } from 'vue'
 import { useViewStore } from '@/stores/view'
 import { useEventsStore } from '@/stores/events'
-import { getArtistColor } from '@/utils/config'
+import { useUserStore } from '@/stores/user'
+import { getOfficialChipStyle, getFanChipStyle } from '@/utils/config'
 
-const viewStore = useViewStore()
-const eventsStore = useEventsStore()
+export default {
+  name: 'WeekView',
+  setup() {
+    const viewStore = useViewStore()
+    const eventsStore = useEventsStore()
+    const userStore = useUserStore()
 
-const selectedEvent = ref(null)
-const dayNames = ['日', '一', '二', '三', '四', '五', '六']
+    const selectedDate = ref(new Date())
 
-const selectedDateStr = computed(() => {
-  const year = viewStore.selectedDate.getFullYear()
-  const month = String(viewStore.selectedDate.getMonth() + 1).padStart(2, '0')
-  const date = String(viewStore.selectedDate.getDate()).padStart(2, '0')
-  return `${year}-${month}-${date}`
-})
+    // 计算周日期
+    const weekDates = computed(() => {
+      const date = new Date(selectedDate.value)
+      const dayOfWeek = date.getDay()
+      const diff = date.getDate() - dayOfWeek
 
-const weekStart = computed(() => {
-  const date = new Date(viewStore.selectedDate)
-  date.setDate(date.getDate() - date.getDay())
-  return date
-})
+      const weekStart = new Date(date.setDate(diff))
+      const dates = []
 
-const weekEnd = computed(() => {
-  const date = new Date(weekStart.value)
-  date.setDate(date.getDate() + 6)
-  return date
-})
+      for (let i = 0; i < 7; i++) {
+        const day = new Date(weekStart)
+        day.setDate(day.getDate() + i)
 
-const weekDays = computed(() => {
-  const days = []
-  for (let i = 0; i < 7; i++) {
-    const date = new Date(weekStart.value)
-    date.setDate(date.getDate() + i)
-    const year = date.getFullYear()
-    const month = String(date.getMonth() + 1).padStart(2, '0')
-    const day = String(date.getDate()).padStart(2, '0')
-    days.push({
-      date,
-      dateStr: `${year}-${month}-${day}`
+        const dateStr = formatDateStr(day)
+        const isToday = isDateToday(day)
+
+        dates.push({
+          dateStr,
+          fullDate: day,
+          date: day.getDate(),
+          dayName: getDayName(day),
+          isToday,
+          isSelected: dateStr === formatDateStr(selectedDate.value),
+        })
+      }
+
+      return dates
     })
-  }
-  return days
-})
 
-const todayEvents = computed(() => {
-  return eventsStore.filteredEvents.filter(e => 
-    (e.date || e.sale_date) === selectedDateStr.value
-  )
-})
+    // 获取选中日期的事件
+    const selectedDayEvents = computed(() => {
+      const dateStr = formatDateStr(selectedDate.value)
+      return eventsStore.getEventsByDate(dateStr)
+    })
 
-function previousWeek() {
-  const newDate = new Date(viewStore.selectedDate)
-  newDate.setDate(newDate.getDate() - 7)
-  viewStore.selectDate(newDate)
-}
+    // CSS 变量
+    const weekCssVariables = computed(() => {
+      const colors = viewStore.currentColors
+      const vars = {}
+      Object.entries(colors).forEach(([key, value]) => {
+        vars[`--${key}`] = value
+      })
+      return vars
+    })
 
-function nextWeek() {
-  const newDate = new Date(viewStore.selectedDate)
-  newDate.setDate(newDate.getDate() + 7)
-  viewStore.selectDate(newDate)
-}
+    // 获取芯片样式类
+    const getChipClasses = (event) => {
+      const category = event.category || 'other'
+      return {
+        [`category-${category}`]: true,
+        'is-official': event.isofficial,
+        'is-fan': !event.isofficial,
+      }
+    }
 
-function selectDate(date) {
-  viewStore.selectDate(date)
-}
+    // 获取芯片样式
+    const getChipStyle = (event) => {
+      const category = event.category || 'other'
+      const region = viewStore.currentRegion
 
-function getEventStyle(event) {
-  const colors = getArtistColor(event.category, viewStore.currentRegion, event.isofficial)
-  return {
-    borderLeft: `3px solid ${colors.background || colors.color}`,
-    backgroundColor: colors.background ? colors.background + '10' : 'transparent'
-  }
+      if (event.isofficial) {
+        const officialStyle = getOfficialChipStyle(category, region)
+        return {
+          '--border-color': officialStyle.borderColor,
+          '--text-color': officialStyle.color,
+          '--bg-color': 'transparent',
+        }
+      } else {
+        const fanStyle = getFanChipStyle(category, region)
+        return {
+          '--border-color': fanStyle.bg,
+          '--text-color': fanStyle.text,
+          '--bg-color': fanStyle.bg,
+        }
+      }
+    }
+
+    // 日期格式化
+    const formatDateStr = (date) => {
+      const year = date.getFullYear()
+      const month = String(date.getMonth() + 1).padStart(2, '0')
+      const day = String(date.getDate()).padStart(2, '0')
+      return `${year}-${month}-${day}`
+    }
+
+    const formatSelectedDate = () => {
+      return selectedDate.value.toLocaleDateString('zh-CN', {
+        month: '2-digit',
+        day: '2-digit',
+        weekday: 'long',
+      })
+    }
+
+    const getDayName = (date) => {
+      const names = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
+      return names[date.getDay()]
+    }
+
+    const isDateToday = (date) => {
+      const today = new Date()
+      return (
+        date.getFullYear() === today.getFullYear() &&
+        date.getMonth() === today.getMonth() &&
+        date.getDate() === today.getDate()
+      )
+    }
+
+    // 操作函数
+    const selectDate = (day) => {
+      selectedDate.value = new Date(day.fullDate)
+    }
+
+    const previousWeek = () => {
+      selectedDate.value = new Date(selectedDate.value.setDate(selectedDate.value.getDate() - 7))
+    }
+
+    const nextWeek = () => {
+      selectedDate.value = new Date(selectedDate.value.setDate(selectedDate.value.getDate() + 7))
+    }
+
+    const openLink = (url) => {
+      if (url) {
+        window.open(url, '_blank')
+      }
+    }
+
+    const toggleFavorite = (eventId) => {
+      userStore.toggleFavorite(eventId)
+    }
+
+    const isFavorited = (eventId) => {
+      return userStore.favorites.includes(eventId)
+    }
+
+    return {
+      weekDates,
+      selectedDayEvents,
+      weekCssVariables,
+      selectedDate,
+      getChipClasses,
+      getChipStyle,
+      selectDate,
+      previousWeek,
+      nextWeek,
+      openLink,
+      toggleFavorite,
+      isFavorited,
+      formatSelectedDate,
+    }
+  },
 }
 </script>
 
 <style scoped>
 .week-view {
-  padding: 2rem;
-  background: var(--color-background);
-  color: var(--color-text);
+  width: 100%;
+  background-color: var(--bg);
+  padding: 1.5rem;
+  border-radius: 0.75rem;
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
 }
 
-.week-header {
+/* ============ 周选择器 ============ */
+.week-selector {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  margin-bottom: 2rem;
-  padding-bottom: 1rem;
-  border-bottom: 1px solid var(--color-border);
+  gap: 1rem;
+  padding: 1rem;
+  background-color: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 0.75rem;
 }
 
-.nav-btn {
+.nav-button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
   width: 2.5rem;
   height: 2.5rem;
-  border: 1px solid var(--color-border);
-  background: var(--color-surface);
-  border-radius: 8px;
+  padding: 0;
   font-size: 1.5rem;
+  background-color: var(--border-soft);
+  border: 1px solid var(--border);
+  border-radius: 0.5rem;
   cursor: pointer;
-  transition: all 0.2s;
+  transition: all 0.2s ease;
+  color: var(--text);
 }
 
-.nav-btn:hover {
-  background: var(--color-primary);
+.nav-button:hover {
+  background-color: var(--c-gl);
+  border-color: var(--c-gl);
   color: white;
-  border-color: var(--color-primary);
 }
 
-.week-info {
-  text-align: center;
-  flex: 1;
-}
-
-.week-title {
-  font-size: 1.25rem;
-  font-weight: 600;
-}
-
-.weekdays-slider {
+.week-dates {
   display: flex;
   gap: 0.75rem;
-  margin-bottom: 2rem;
+  flex: 1;
   overflow-x: auto;
-  padding-bottom: 0.5rem;
+  padding: 0.25rem;
+  scroll-behavior: smooth;
 }
 
-.day-btn {
+.week-date {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 0.5rem;
-  padding: 0.75rem 1rem;
-  border: 1px solid var(--color-border);
-  background: var(--color-surface);
-  border-radius: 8px;
+  justify-content: center;
+  min-width: 4.5rem;
+  padding: 0.75rem;
+  background-color: var(--border-soft);
+  border: 1px solid var(--border);
+  border-radius: 0.5rem;
   cursor: pointer;
-  transition: all 0.2s;
-  white-space: nowrap;
-  min-width: 70px;
+  transition: all 0.2s ease;
+  color: var(--text);
+  font-weight: 500;
 }
 
-.day-btn:hover {
-  border-color: var(--color-primary);
-}
-
-.day-btn.active {
-  background: #1a1a1a;
+.week-date:hover {
+  background-color: var(--c-gl);
+  border-color: var(--c-gl);
   color: white;
-  border-color: #1a1a1a;
+}
+
+.week-date.is-selected {
+  background-color: var(--c-gl);
+  border-color: var(--c-gl);
+  color: white;
+  font-weight: 600;
+}
+
+.week-date.is-today {
+  border: 2px solid var(--c-gl);
 }
 
 .day-name {
   font-size: 0.75rem;
-  font-weight: 500;
+  opacity: 0.8;
   text-transform: uppercase;
   letter-spacing: 0.05em;
 }
 
-.day-number {
-  font-size: 1.25rem;
+.date-num {
+  font-size: 1rem;
   font-weight: 600;
+  margin-top: 0.25rem;
 }
 
-.day-events {
-  background: var(--color-surface);
-  border: 1px solid var(--color-border);
-  border-radius: 12px;
+/* ============ 事件容器 ============ */
+.events-container {
+  background-color: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 0.75rem;
   padding: 1.5rem;
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
 }
 
-.events-title {
-  margin: 0 0 1.5rem 0;
-  font-size: 1.25rem;
-  font-weight: 600;
+.events-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  border-bottom: 2px solid var(--border);
+  padding-bottom: 1rem;
 }
 
-.no-events {
-  text-align: center;
-  color: var(--color-textSecondary);
-  padding: 2rem;
-  font-size: 0.9rem;
+.selected-date {
+  font-size: 1.125rem;
+  font-weight: 700;
+  color: var(--text);
+  margin: 0;
 }
 
+.event-count {
+  font-size: 0.875rem;
+  color: var(--muted);
+  font-weight: 500;
+}
+
+/* ============ 事件列表 ============ */
 .events-list {
   display: flex;
   flex-direction: column;
   gap: 1rem;
 }
 
-.event-item {
-  border-left: 3px solid var(--color-primary);
+.event-card {
+  display: flex;
+  gap: 1rem;
   padding: 1rem;
-  background: var(--color-background);
-  border-radius: 8px;
+  background-color: var(--bg);
+  border: 1px solid var(--border-soft);
+  border-radius: 0.75rem;
+  transition: all 0.2s ease;
   cursor: pointer;
-  transition: all 0.2s;
 }
 
-.event-item:hover {
-  transform: translateX(4px);
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+.event-card:hover {
+  border-color: var(--c-gl);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+  transform: translateY(-2px);
+}
+
+/* 官方样式 */
+.event-card.is-official {
+  border: 1.5px solid var(--border-color);
+  background-color: rgba(255, 255, 255, 0.5);
+}
+
+/* 粉丝样式 */
+.event-card.is-fan {
+  background-color: rgba(255, 255, 255, 0.8);
+}
+
+.event-color-bar {
+  width: 4px;
+  background-color: var(--border-color);
+  border-radius: 2px;
+  flex-shrink: 0;
+}
+
+.event-content {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  min-width: 0;
 }
 
 .event-header {
   display: flex;
-  justify-content: space-between;
   align-items: flex-start;
-  margin-bottom: 0.75rem;
+  gap: 0.75rem;
+  justify-content: space-between;
 }
 
 .event-name {
-  margin: 0;
-  font-size: 1rem;
   display: flex;
   align-items: center;
   gap: 0.5rem;
+  font-size: 1rem;
+  font-weight: 600;
+  color: var(--text);
+  margin: 0;
+  flex: 1;
 }
 
 .official-badge {
+  color: var(--border-color);
+  font-size: 0.875rem;
+  flex-shrink: 0;
+}
+
+.activity-type {
+  display: inline-block;
+  padding: 0.25rem 0.75rem;
   font-size: 0.75rem;
-  background: var(--color-primary);
-  color: white;
-  padding: 0.25rem 0.5rem;
-  border-radius: 4px;
   font-weight: 500;
-}
-
-.event-time {
-  font-size: 0.875rem;
-  color: var(--color-textSecondary);
+  background-color: var(--border);
+  color: var(--muted);
+  border-radius: 0.375rem;
   white-space: nowrap;
+  flex-shrink: 0;
 }
 
+/* ============ 事件详情 ============ */
 .event-details {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.detail-item {
+  display: flex;
+  gap: 0.5rem;
   font-size: 0.875rem;
-  color: var(--color-textSecondary);
+  color: var(--text);
+  margin: 0;
+  line-height: 1.4;
 }
 
-.event-details p {
-  margin: 0.25rem 0;
+.label {
+  color: var(--muted);
+  font-weight: 500;
+  flex-shrink: 0;
 }
 
-.event-details strong {
-  color: var(--color-text);
+/* ============ 操作按钮 ============ */
+.event-actions {
+  display: flex;
+  gap: 0.75rem;
+  margin-top: 0.5rem;
 }
 
+.btn-link,
+.btn-favorite {
+  padding: 0.375rem 0.75rem;
+  font-size: 0.75rem;
+  font-weight: 500;
+  border-radius: 0.375rem;
+  border: 1px solid var(--border);
+  background-color: var(--surface);
+  color: var(--text);
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.btn-link:hover {
+  background-color: var(--border-soft);
+  border-color: var(--c-gl);
+}
+
+.btn-favorite {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 2rem;
+  padding: 0;
+  color: var(--muted);
+  flex-shrink: 0;
+}
+
+.btn-favorite:hover {
+  color: #e74c3c;
+  border-color: #e74c3c;
+}
+
+.btn-favorite.active {
+  color: #e74c3c;
+  background-color: rgba(231, 76, 60, 0.1);
+  border-color: #e74c3c;
+}
+
+/* ============ 空状态 ============ */
+.empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 1rem;
+  padding: 3rem 1rem;
+  color: var(--muted);
+}
+
+.empty-icon {
+  font-size: 3rem;
+  opacity: 0.5;
+}
+
+.empty-text {
+  font-size: 0.875rem;
+  margin: 0;
+}
+
+/* ============ 响应式设计 ============ */
 @media (max-width: 768px) {
   .week-view {
     padding: 1rem;
+    gap: 1rem;
   }
 
-  .weekdays-slider {
+  .week-selector {
+    padding: 0.75rem;
+  }
+
+  .week-dates {
     gap: 0.5rem;
   }
 
-  .day-btn {
-    padding: 0.5rem 0.75rem;
-    min-width: 60px;
+  .week-date {
+    min-width: 3.5rem;
+    padding: 0.5rem;
+    font-size: 0.875rem;
+  }
+
+  .event-card {
+    flex-direction: column;
+    gap: 0.75rem;
+  }
+
+  .event-color-bar {
+    height: 4px;
+    width: 100%;
+  }
+
+  .event-header {
+    flex-direction: column;
+  }
+
+  .activity-type {
+    align-self: flex-start;
   }
 }
 </style>
