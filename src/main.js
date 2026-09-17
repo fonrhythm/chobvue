@@ -1,25 +1,23 @@
 import { createApp } from 'vue'
-import { createPinia } from 'pinia'
 import App from './App.vue'
 
-// 导入 Stores
-import { useThemeStore } from './stores/theme'
-import { useLanguageStore } from './stores/language'
+// ⭐ 导入CHOB Calendar的全局样式
+import '@/styles/calendar.css'
+
+// 如果你有路由，导入它
+// import router from './router'
 
 const app = createApp(App)
 
-// 创建 Pinia 实例
-const pinia = createPinia()
+// 如果有路由，使用它
+// app.use(router)
 
-// 使用插件
-app.use(pinia)
-
-// 初始化主题和语言
-const themeStore = useThemeStore()
-const languageStore = useLanguageStore()
-
-themeStore.initTheme()
-languageStore.initLanguage()
-
-// 挂载应用
 app.mount('#app')
+
+// 调试模式（开发时有用，可删除）
+if (import.meta.env.DEV) {
+  window.__CHOB_DEBUG__ = true
+  console.log('🎉 CHOB Calendar 开发模式已启动')
+  console.log('当前地区: 海外 (oversea)')
+  console.log('切换地区: document.documentElement.setAttribute("data-region", "china")')
+}
